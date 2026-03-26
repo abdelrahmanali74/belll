@@ -2,7 +2,16 @@
 // 🔔 BUZZER GAME - Client Application
 // ============================================
 
-const socket = io();
+// Socket.IO with robust reconnection settings
+const socket = io({
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 45000,
+    autoConnect: true,
+    transports: ['websocket', 'polling'], // Prefer websocket, fallback to polling
+});
 
 // DOM Elements
 const registerScreen = document.getElementById('register-screen');
@@ -37,9 +46,22 @@ const confettiContainer = document.getElementById('confetti');
 
 // State
 let myName = '';
+let mySessionId = '';
 let isOwner = false;
 let hasBuzzed = false;
 let isGameLocked = false;
+let isConnected = false;
+let heartbeatInterval = null;
+
+// Try to restore session from localStorage
+try {
+    const savedSession = localStorage.getItem('buzzer-session');
+    if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        myName = parsed.name || '';
+        mySessionId = parsed.sessionId || '';
+    }
+} catch (e) { /* ignore */ }
 
 // Colors palette for avatars
 const avatarColors = [
@@ -80,7 +102,7 @@ function register() {
         }, 500);
         return;
     }
-    socket.emit('register', name);
+    socket.emit('register', { name: name, sessionId: mySessionId || null });
 }
 
 // Add shake animation
@@ -97,12 +119,99 @@ style.textContent = `
 document.head.appendChild(style);
 
 // ============================================
+// CONNECTION MANAGEMENT
+// ============================================
+
+function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatInterval = setInterval(() => {
+        if (isConnected) {
+            socket.emit('heartbeat');
+        }
+    }, 15000); // Every 15 seconds
+}
+
+function stopHeartbeat() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+    }
+}
+
+socket.on('connect', () => {
+    console.log('✅ Connected to server');
+    isConnected = true;
+    startHeartbeat();
+
+    // Auto re-register if we had a session
+    if (myName && mySessionId) {
+        console.log(`🔄 Auto re-registering as ${myName}`);
+        socket.emit('register', { name: myName, sessionId: mySessionId });
+    }
+
+    // Update connection indicator
+    updateConnectionStatus(true);
+});
+
+socket.on('disconnect', (reason) => {
+    console.log(`❌ Disconnected: ${reason}`);
+    isConnected = false;
+    stopHeartbeat();
+    updateConnectionStatus(false);
+
+    // Don't show toast for intentional disconnects
+    if (reason !== 'io client disconnect') {
+        showToast('⚠️ انقطع الاتصال... جاري إعادة الاتصال', 'error');
+    }
+});
+
+socket.on('connect_error', (err) => {
+    console.log(`🔴 Connection error: ${err.message}`);
+    updateConnectionStatus(false);
+});
+
+socket.on('heartbeat-ack', () => {
+    // Server is alive, connection is healthy
+});
+
+socket.io.on('reconnect', (attempt) => {
+    console.log(`🔄 Reconnected after ${attempt} attempts`);
+    showToast('✅ تم إعادة الاتصال بنجاح!', 'success');
+});
+
+socket.io.on('reconnect_attempt', (attempt) => {
+    if (attempt % 5 === 0) {
+        showToast(`🔄 جاري محاولة إعادة الاتصال... (${attempt})`, 'warning');
+    }
+});
+
+socket.io.on('reconnect_failed', () => {
+    showToast('❌ فشل إعادة الاتصال. جرب تحدث الصفحة.', 'error');
+});
+
+function updateConnectionStatus(connected) {
+    const dot = document.querySelector('.pulse-dot');
+    if (dot) {
+        dot.style.background = connected ? 'var(--success)' : 'var(--danger)';
+    }
+}
+
+// ============================================
 // SOCKET EVENT HANDLERS
 // ============================================
 
 socket.on('registered', (data) => {
     myName = data.name;
+    mySessionId = data.sessionId;
     isOwner = data.isOwner;
+
+    // Save session to localStorage for reconnection
+    try {
+        localStorage.setItem('buzzer-session', JSON.stringify({
+            name: myName,
+            sessionId: mySessionId
+        }));
+    } catch (e) { /* ignore */ }
 
     // Switch to game screen
     registerScreen.classList.remove('active');
@@ -115,6 +224,8 @@ socket.on('registered', (data) => {
 
     if (isOwner) {
         ownerControls.classList.remove('hidden');
+    } else {
+        ownerControls.classList.add('hidden');
     }
 
     showToast(`أهلاً ${myName}! 🎉`, 'success');
@@ -134,12 +245,21 @@ socket.on('game-state', (state) => {
         isGameLocked = true;
         showWinner(state.winner);
         lockBuzzer();
+    } else {
+        isGameLocked = false;
     }
 
     roundNumber.textContent = state.roundNumber + 1;
 
-    if (state.buzzOrder.length > 0) {
+    if (state.buzzOrder && state.buzzOrder.length > 0) {
         showBuzzOrder(state.buzzOrder);
+    }
+
+    // Update players list
+    if (state.players && state.players.length > 0) {
+        updatePlayersList(state.players, state.owner);
+        playerCount.textContent = state.players.length;
+        sidebarToggleCount.textContent = state.players.length;
     }
 });
 
@@ -158,6 +278,7 @@ socket.on('player-left', (data) => {
     updatePlayersList(data.players, data.owner);
     playerCount.textContent = data.players.length;
     sidebarToggleCount.textContent = data.players.length;
+    onlineCountText.textContent = `${data.players.length} لاعب متصل`;
     showToast(`${data.name} ساب اللعبة 👋`, 'info');
 });
 
@@ -200,13 +321,14 @@ socket.on('error-msg', (msg) => {
 // ============================================
 
 buzzerBtn.addEventListener('click', () => {
-    if (hasBuzzed || isGameLocked) return;
+    if (hasBuzzed || isGameLocked || !isConnected) return;
 
     hasBuzzed = true;
     socket.emit('buzz');
 
     buzzerBtn.classList.add('pressed');
     buzzerHint.textContent = '✅ ضغطت!';
+    playBuzzerSound();
 
     // Play vibration if available
     if (navigator.vibrate) {
@@ -251,6 +373,10 @@ function showBuzzOrder(order) {
 // ============================================
 
 resetBtn.addEventListener('click', () => {
+    if (!isConnected) {
+        showToast('❌ مفيش اتصال بالسيرفر!', 'error');
+        return;
+    }
     socket.emit('reset');
 });
 
@@ -307,14 +433,31 @@ function updatePlayersList(players, ownerName) {
 // TOAST NOTIFICATIONS
 // ============================================
 
+let toastQueue = [];
+const MAX_TOASTS = 3;
+
 function showToast(message, type = 'info') {
+    // Remove oldest if too many
+    while (toastContainer.children.length >= MAX_TOASTS) {
+        toastContainer.removeChild(toastContainer.firstChild);
+    }
+
+    // Debounce duplicate messages
+    const lastToast = toastQueue[toastQueue.length - 1];
+    if (lastToast && lastToast.message === message && Date.now() - lastToast.time < 2000) {
+        return;
+    }
+
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
     toastContainer.appendChild(toast);
 
+    toastQueue.push({ message, time: Date.now() });
+    if (toastQueue.length > 10) toastQueue.shift();
+
     setTimeout(() => {
-        toast.remove();
+        if (toast.parentNode) toast.remove();
     }, 3500);
 }
 
@@ -344,25 +487,9 @@ function launchConfetti() {
 }
 
 // ============================================
-// CONNECTION STATUS
+// SOUND
 // ============================================
 
-socket.on('connect', () => {
-    console.log('Connected to server');
-});
-
-socket.on('disconnect', () => {
-    showToast('⚠️ انقطع الاتصال... جاري إعادة الاتصال', 'error');
-});
-
-socket.on('reconnect', () => {
-    showToast('✅ تم إعادة الاتصال', 'success');
-    if (myName) {
-        socket.emit('register', myName);
-    }
-});
-
-// Play buzzer sound effect (Web Audio API)
 function playBuzzerSound() {
     try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -381,9 +508,41 @@ function playBuzzerSound() {
     }
 }
 
-// Enhanced buzzer click with sound
-const originalBuzzerClick = buzzerBtn.onclick;
-buzzerBtn.addEventListener('click', () => {
-    if (!hasBuzzed) return; // Only play if actually buzzed (set to true right before)
-    playBuzzerSound();
+// ============================================
+// AUTO-RECONNECT ON VISIBILITY CHANGE
+// ============================================
+
+// When user switches back to the tab, check connection
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        if (!socket.connected) {
+            console.log('🔄 Tab became visible, reconnecting...');
+            socket.connect();
+        }
+    }
+});
+
+// Also handle online/offline events
+window.addEventListener('online', () => {
+    console.log('🌐 Network is back online');
+    if (!socket.connected) {
+        socket.connect();
+    }
+    showToast('🌐 الإنترنت رجع!', 'success');
+});
+
+window.addEventListener('offline', () => {
+    console.log('📴 Network went offline');
+    showToast('📴 الإنترنت انقطع!', 'error');
+});
+
+// ============================================
+// PAGE LOAD - AUTO RE-JOIN
+// ============================================
+
+// If user refreshes and has saved session, auto-fill name
+window.addEventListener('DOMContentLoaded', () => {
+    if (myName) {
+        playerNameInput.value = myName;
+    }
 });
