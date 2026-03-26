@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔔 لعبة الجرس - Buzzer Game</title>
+    <meta name="description" content="لعبة الجرس التفاعلية - أول واحد يضغط يكسب!">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Registration Screen -->
+    <div id="register-screen" class="screen active">
+        <div class="register-container">
+            <div class="logo-area">
+                <div class="bell-icon-large">🔔</div>
+                <h1>لعبة الجرس</h1>
+                <p class="subtitle">أول واحد يضغط يكسب!</p>
+            </div>
+            <div class="register-form">
+                <div class="input-group">
+                    <input type="text" id="player-name" placeholder="اكتب اسمك هنا..." maxlength="20" autocomplete="off">
+                    <div class="input-glow"></div>
+                </div>
+                <button id="join-btn" class="btn-primary">
+                    <span>ادخل اللعبة</span>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M5 12h14M12 5l7 7-7 7"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="online-count">
+                <div class="pulse-dot"></div>
+                <span id="online-count-text">0 لاعب متصل</span>
+            </div>
+        </div>
+        <div class="floating-bells">
+            <span class="float-bell" style="--delay: 0s; --x: 10%;">🔔</span>
+            <span class="float-bell" style="--delay: 1.5s; --x: 25%;">🛎️</span>
+            <span class="float-bell" style="--delay: 3s; --x: 40%;">🔔</span>
+            <span class="float-bell" style="--delay: 0.8s; --x: 55%;">🛎️</span>
+            <span class="float-bell" style="--delay: 2.2s; --x: 70%;">🔔</span>
+            <span class="float-bell" style="--delay: 4s; --x: 85%;">🛎️</span>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+        <header class="game-header">
+            <div class="header-left">
+                <div class="round-badge">
+                    <span>الجولة</span>
+                    <strong id="round-number">1</strong>
+                </div>
+            </div>
+            <div class="header-center">
+                <h2>🔔 لعبة الجرس</h2>
+            </div>
+            <div class="header-right">
+                <div class="player-info">
+                    <div class="player-avatar" id="player-avatar">?</div>
+                    <span id="player-display-name">اللاعب</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="game-main">
+            <!-- Status Area -->
+            <div class="status-area" id="status-area">
+                <div class="status-waiting" id="status-waiting">
+                    <div class="status-icon">⏳</div>
+                    <p>الجرس جاهز... مين هيضغط الأول؟</p>
+                </div>
+                <div class="status-winner hidden" id="status-winner">
+                    <div class="winner-crown">👑</div>
+                    <div class="winner-name" id="winner-name"></div>
+                    <div class="winner-label">ضغط الأول!</div>
+                    <div class="confetti-container" id="confetti"></div>
+                </div>
+            </div>
+
+            <!-- Buzzer Button -->
+            <div class="buzzer-area">
+                <button id="buzzer-btn" class="buzzer-button" title="اضغط الجرس!">
+                    <div class="buzzer-ring ring-1"></div>
+                    <div class="buzzer-ring ring-2"></div>
+                    <div class="buzzer-ring ring-3"></div>
+                    <div class="buzzer-inner">
+                        <span class="buzzer-icon">🔔</span>
+                    </div>
+                </button>
+                <p class="buzzer-hint" id="buzzer-hint">اضغط الجرس!</p>
+            </div>
+
+            <!-- Owner Controls -->
+            <div class="owner-controls hidden" id="owner-controls">
+                <button id="reset-btn" class="btn-reset">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M1 4v6h6"/>
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                    </svg>
+                    <span>رست الجرس</span>
+                </button>
+                <div class="owner-badge">
+                    <span>👑 أنت المالك</span>
+                </div>
+            </div>
+
+            <!-- Buzz Order -->
+            <div class="buzz-order-section hidden" id="buzz-order-section">
+                <h3>ترتيب الضغط</h3>
+                <div class="buzz-order-list" id="buzz-order-list"></div>
+            </div>
+        </main>
+
+        <!-- Sidebar - Players -->
+        <aside class="players-sidebar" id="players-sidebar">
+            <div class="sidebar-header">
+                <h3>اللاعبين</h3>
+                <span class="player-count" id="player-count">0</span>
+            </div>
+            <div class="players-list" id="players-list"></div>
+            <button class="sidebar-toggle" id="sidebar-toggle">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                <span id="sidebar-toggle-count">0</span>
+            </button>
+        </aside>
+
+        <!-- Toast Notifications -->
+        <div class="toast-container" id="toast-container"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
